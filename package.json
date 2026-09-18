@@ -1,0 +1,13 @@
+{
+  "name": "wiki-research-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=@wiki-research/mcp-server",
+    "inspect:server": "npm run inspect --workspace=@wiki-research/mcp-server"
+  }
+}
