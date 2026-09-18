@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev:server": "npm run dev --workspace=@wiki-research/mcp-server",
-    "inspect:server": "npm run inspect --workspace=@wiki-research/mcp-server"
+    "inspect:server": "npm run inspect --workspace=@wiki-research/mcp-server",
+    "dev:web": "npm run dev --workspace=web"
   }
 }
