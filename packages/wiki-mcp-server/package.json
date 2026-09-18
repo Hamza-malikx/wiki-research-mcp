@@ -7,15 +7,18 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx src/index.ts",
     "inspect": "npx @modelcontextprotocol/inspector npx tsx src/index.ts",
-    "client": "tsx src/client.ts"
+    "client": "tsx src/client.ts",
+    "claude": "tsx src/claude-client.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.127.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
+    "dotenv": "^18.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
