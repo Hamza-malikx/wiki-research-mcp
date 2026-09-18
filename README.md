@@ -6,7 +6,25 @@ The application lets a user enter a topic, researches it through a custom Wikipe
 
 ## What We’re Building
 
-<img src="./docs/mcp-flow.png" alt="Wiki Research MCP architecture" width="100%" />
+```mermaid
+sequenceDiagram
+    actor User
+    participant App as Next.js app<br/>(MCP host)
+    participant Claude as Claude API
+    participant Server as Wikipedia<br/>MCP server
+    participant Wiki as Wikipedia API
+
+    User->>App: Enter a topic
+    App->>Claude: Topic + available tools
+    Claude-->>App: "Use research_wikipedia"
+    App->>Server: Call the tool (MCP client)
+    Server->>Wiki: Search articles
+    Wiki-->>Server: Summaries + links
+    Server-->>App: Tool result
+    App->>Claude: Tool result
+    Claude-->>App: Final report
+    App-->>User: Show the report
+```
 
 The application follows this flow:
 
@@ -35,7 +53,5 @@ wiki-research-mcp/
 │   └── web/
 ├── packages/
 │   └── wiki-mcp-server/
-├── docs/
-│   └── mcp-flow.png
 └── README.md
 ```
