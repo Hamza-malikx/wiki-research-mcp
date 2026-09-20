@@ -50,14 +50,21 @@ async function researchWikipedia(topic: string, limit: number) {
     summary:
       page.extract?.slice(0, 1800) ?? "Wikipedia did not return a summary.",
     url: page.fullurl ?? `https://en.wikipedia.org/?curid=${page.pageid}`,
-   }));
+  }));
 }
 
 function createServer() {
-  const server = new McpServer({
-    name: "wikipedia-research-server",
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: "wikipedia-research-server",
+      version: "0.1.0",
+    },
+    {
+      capabilities: {
+        logging: {},
+      },
+    },
+  );
 
   server.registerTool(
     "research_wikipedia",
@@ -82,11 +89,38 @@ function createServer() {
           .describe("Number of Wikipedia articles to return"),
       }),
     },
-    async ({ topic, limit }) => {
+    async ({ topic, limit }, context) => {
+      const progressToken = context.mcpReq._meta?.progressToken;
+
+      async function reportProgress(progress: number, message: string) {
+        if (progressToken === undefined) {
+          return;
+        }
+
+        await context.mcpReq.notify({
+          method: "notifications/progress",
+          params: {
+            progressToken,
+            progress,
+            total: 100,
+            message,
+          },
+        });
+      }
       try {
+        await context.mcpReq.log(
+          "info",
+          { topic, limit },
+          "wikipedia-research",
+        );
+
+        await reportProgress(10, "Preparing Wikipedia search");
+        await reportProgress(35, "Searching Wikipedia");
         const articles = await researchWikipedia(topic, limit);
+        await reportProgress(75, `Found ${articles.length} relevant articles`);
 
         if (articles.length === 0) {
+          await reportProgress(100, "No matching articles found");
           return {
             content: [
               {
@@ -102,6 +136,13 @@ function createServer() {
           source: "Wikipedia",
           articles,
         };
+        await context.mcpReq.log(
+          "info",
+          { articleCount: articles.length },
+          "wikipedia-research",
+        );
+
+        await reportProgress(100, "Wikipedia research complete");
         return {
           content: [
             {
@@ -113,7 +154,8 @@ function createServer() {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown research error";
-
+        await context.mcpReq.log("error", { message }, "wikipedia-research");
+        await reportProgress(100, `Wikipedia research failed: ${message}`);
         return {
           isError: true,
           content: [
