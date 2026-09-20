@@ -1,5 +1,6 @@
 import "server-only";
-
+import { mkdir } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/client";
@@ -38,11 +39,38 @@ export async function runResearch(
 
   const anthropic = new Anthropic({ apiKey });
 
-  const mcpClient = new Client({
-    name: "wiki-research-next-host",
-    version: "0.1.0",
-  });
+  const researchOutputPath = path.resolve(
+    process.cwd(),
+    "../../research-output",
+  );
 
+  const mcpClient = new Client(
+    {
+      name: "wiki-research-next-host",
+      version: "0.1.0",
+    },
+    {
+      capabilities: {
+        roots: {
+          listChanged: false,
+        },
+      },
+    },
+  );
+  mcpClient.setRequestHandler("roots/list", async () => {
+    await mkdir(researchOutputPath, {
+      recursive: true,
+    });
+
+    return {
+      roots: [
+        {
+          uri: pathToFileURL(researchOutputPath).href,
+          name: "Research Output",
+        },
+      ],
+    };
+  });
   mcpClient.setNotificationHandler("notifications/message", (notification) => {
     onUpdate({
       type: "log",
