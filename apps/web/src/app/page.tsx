@@ -7,10 +7,31 @@ interface ResearchResponse {
   answer: string;
 }
 
+interface ActivityEvent {
+  type: "status" | "log" | "progress";
+  message: string;
+  level?: string;
+  progress?: number;
+}
+
+type ResearchStreamEvent =
+  | ActivityEvent
+  | {
+      type: "result";
+      topic: string;
+      answer: string;
+    }
+  | {
+      type: "error";
+      message: string;
+    };
+
 export default function Home() {
   const [topic, setTopic] = useState("");
   const [result, setResult] =
     useState<ResearchResponse | null>(null);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -26,31 +47,123 @@ export default function Home() {
 
     setError("");
     setResult(null);
+    setActivity([]);
+    setProgress(0);
     setIsLoading(true);
 
     try {
       const response = await fetch("/api/research", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
         },
         body: JSON.stringify({
-          topic: cleanTopic
-        })
+          topic: cleanTopic,
+        }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
+        const data = (await response.json()) as {
+          error?: string;
+        };
+
         throw new Error(data.error ?? "Research failed.");
       }
 
-      setResult(data);
+      if (!response.body) {
+        throw new Error(
+          "The browser could not read the response stream.",
+        );
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      let buffer = "";
+      let receivedResult = false;
+
+      function handleStreamEvent(
+        streamEvent: ResearchStreamEvent,
+      ) {
+        if (
+          streamEvent.type === "status" ||
+          streamEvent.type === "log" ||
+          streamEvent.type === "progress"
+        ) {
+          setActivity((current) => [
+            ...current,
+            streamEvent,
+          ]);
+
+          if (
+            streamEvent.type === "progress" &&
+            streamEvent.progress !== undefined
+          ) {
+            setProgress(streamEvent.progress);
+          }
+
+          return;
+        }
+
+        if (streamEvent.type === "result") {
+          receivedResult = true;
+          setProgress(100);
+
+          setResult({
+            topic: streamEvent.topic,
+            answer: streamEvent.answer,
+          });
+
+          return;
+        }
+
+        throw new Error(streamEvent.message);
+      }
+
+      function processLine(line: string) {
+        const cleanLine = line.trim();
+
+        if (!cleanLine) {
+          return;
+        }
+
+        handleStreamEvent(
+          JSON.parse(cleanLine) as ResearchStreamEvent,
+        );
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        buffer += decoder.decode(value, {
+          stream: !done,
+        });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          processLine(line);
+        }
+
+        if (done) {
+          break;
+        }
+      }
+
+      processLine(buffer);
+
+      if (!receivedResult) {
+        throw new Error(
+          "The research stream ended without a result.",
+        );
+      }
     } catch (error) {
       setError(
         error instanceof Error
           ? error.message
-          : "Something went wrong."
+          : "Something went wrong.",
       );
     } finally {
       setIsLoading(false);
@@ -71,7 +184,8 @@ export default function Home() {
 
           <p className="mt-5 max-w-xl text-base leading-7 text-neutral-400">
             Claude selects an MCP tool, the MCP server researches
-            Wikipedia, and the results are turned into a sourced report.
+            Wikipedia, and the results are turned into a sourced
+            report.
           </p>
         </header>
 
@@ -90,7 +204,9 @@ export default function Home() {
             <input
               id="topic"
               value={topic}
-              onChange={(event) => setTopic(event.target.value)}
+              onChange={(event) =>
+                setTopic(event.target.value)
+              }
               placeholder="For example: quantum computing"
               maxLength={200}
               disabled={isLoading}
@@ -106,6 +222,54 @@ export default function Home() {
             </button>
           </div>
         </form>
+
+        {activity.length > 0 && (
+          <section className="mt-6 rounded-2xl border border-neutral-800 bg-neutral-900 p-5">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-sm font-medium text-neutral-200">
+                Live activity
+              </h2>
+
+              <span className="font-mono text-xs text-lime-300">
+                {progress}%
+              </span>
+            </div>
+
+            <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-neutral-800">
+              <div
+                className="h-full rounded-full bg-lime-300 transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <ol className="space-y-3">
+              {activity.map((item, index) => (
+                <li
+                  key={`${index}-${item.message}`}
+                  className="flex gap-3 text-sm text-neutral-400"
+                >
+                  <span
+                    className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                      item.type === "log"
+                        ? "bg-sky-400"
+                        : "bg-lime-300"
+                    }`}
+                  />
+
+                  <span>
+                    {item.message}
+
+                    {item.type === "log" && item.level && (
+                      <span className="ml-2 font-mono text-xs uppercase text-sky-400">
+                        {item.level}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
 
         {error && (
           <p className="mt-5 rounded-xl border border-red-900 bg-red-950/40 p-4 text-red-300">
