@@ -1,6 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
 
@@ -168,7 +171,127 @@ function createServer() {
       }
     },
   );
+  server.registerTool(
+    "save_research_report",
+    {
+      title: "Save Research Report",
+      description:
+        "Save a completed Markdown research report inside a client-approved MCP root.",
 
+      inputSchema: z.object({
+        title: z
+          .string()
+          .min(2)
+          .max(120)
+          .describe("Title used for the report heading and filename"),
+
+        report: z
+          .string()
+          .min(1)
+          .max(20_000)
+          .describe("The complete research report in Markdown"),
+      }),
+    },
+
+    async ({ title, report }, context) => {
+      try {
+        // Server asks the client which filesystem roots are allowed.
+        const { roots } = await server.server.listRoots();
+
+        const approvedRoot =
+          roots.find((root) => root.name === "Research Output") ?? roots[0];
+
+        if (!approvedRoot) {
+          throw new Error("The client did not provide an approved root.");
+        }
+
+        const rootUrl = new URL(approvedRoot.uri);
+
+        if (rootUrl.protocol !== "file:") {
+          throw new Error("Only file-based roots are supported.");
+        }
+
+        const rootPath = path.resolve(fileURLToPath(rootUrl));
+
+        // Generate the filename ourselves instead of accepting a path
+        // from Claude.
+        const safeTitle =
+          title
+            .normalize("NFKD")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 60) || "research-report";
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+        const filename = `${safeTitle}-${timestamp}.md`;
+
+        const filePath = path.resolve(rootPath, filename);
+
+        // Confirm that the generated path remains inside the root.
+        const relativePath = path.relative(rootPath, filePath);
+
+        if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+          throw new Error("The report path escaped the approved root.");
+        }
+
+        await mkdir(rootPath, {
+          recursive: true,
+        });
+
+        const markdown = report.trimStart().startsWith("#")
+          ? report
+          : `# ${title}\n\n${report}`;
+
+        await writeFile(filePath, markdown, {
+          encoding: "utf8",
+
+          // Never silently overwrite an existing report.
+          flag: "wx",
+        });
+
+        const fileUri = pathToFileURL(filePath).href;
+
+        await context.mcpReq.log(
+          "info",
+          {
+            filename,
+            root: approvedRoot.name,
+          },
+          "research-output",
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                saved: true,
+                filename,
+                uri: fileUri,
+              }),
+            },
+          ],
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown save error";
+
+        await context.mcpReq.log("error", { message }, "research-output");
+
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Could not save the research report: ${message}`,
+            },
+          ],
+        };
+      }
+    },
+  );
   return server;
 }
 
