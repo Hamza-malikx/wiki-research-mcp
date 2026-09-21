@@ -116,10 +116,16 @@ export async function runResearch(
       input_schema: tool.inputSchema as Anthropic.Tool["input_schema"],
     }));
 
+    // const messages: Anthropic.MessageParam[] = [
+    //   {
+    //     role: "user",
+    //     content: `Research "${topic}" using the available tool. Explain it clearly and include the source links.`,
+    //   },
+    // ];
     const messages: Anthropic.MessageParam[] = [
       {
         role: "user",
-        content: `Research "${topic}" using the available tool. Explain it clearly and include the source links.`,
+        content: `Research "${topic}". First use research_wikipedia. Then create a clear Markdown report with source links and call save_research_report to save it. After saving, return the same report and mention the saved filename.`,
       },
     ];
 
@@ -133,9 +139,14 @@ export async function runResearch(
       });
       const response = await anthropic.messages.create({
         model: process.env.CLAUDE_MODEL ?? "claude-sonnet-5",
-        max_tokens: 1800,
-        system:
-          "You are a concise research assistant. Use the available research tool, base your answer on its results, and include source links.",
+        max_tokens: 2400,
+        system: `You are a concise research assistant. For every request:
+        1. Call research_wikipedia first.
+        2. Build a clear Markdown report from those results, including source links.
+        3. Only after receiving the research results, call save_research_report exactly once with the topic as the title and the complete Markdown report.
+        4. After the save succeeds, return the report and briefly mention the saved filename.
+
+        Never invent sources or skip the save step.`,
         tools: claudeTools,
         messages,
       });
@@ -208,7 +219,10 @@ export async function runResearch(
         });
         onUpdate({
           type: "status",
-          message: "Tool results received; preparing the final answer",
+          message:
+            toolCall.name === "research_wikipedia"
+              ? "Research received; preparing the Markdown report"
+              : "Report saved; preparing the final response",
         });
       }
 
